@@ -48,7 +48,7 @@ uv run python try_walk.py "Where should I go for a walk this fall?" 2
 3. Save your chat id to `.env`: `uv run send-walk --find-chat`
 4. Send a walk now: `uv run send-walk`
 
-`send-walk` plans a walk, sends it only if it passed every check, and records it in the history.
+`send-walk` plans a walk, sends it only if it passed every check, and records it in the history. Options: `--lang fr|en` sets the language for this run (overrides `WALK_LANG`), and `--no-record` sends the walk without saving it to the history, which is handy for demos.
 
 To send it every day at 8:30, create the launchd job from the template, then load it. If the Mac is asleep at 8:30, the walk is sent on wake, but not if the Mac was shut down. Ollama must be running.
 
