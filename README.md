@@ -2,22 +2,30 @@
 
 Ask "Where should I go for a walk this fall?" and get a short message, ready to send, inviting you on an autumn walk in Paris past trees with strong autumn colour (ginkgo, sweetgum, Persian ironwood, maple, oak). It runs on a small local model.
 
-```
-Enjoy the crisp autumn air, with a temperature of 17.0 to 17.8 °C, a 60% rain probability,
-and a wind of 6.5 km/h; an umbrella is advised, so consider taking one or heading out
-during the driest hour at 3 pm.
+<p align="center">
+  <img src="docs/images/telegram-fr.png" alt="Morning walk message in French on Telegram: weather advice, five trees with their October colours, distance, walking time and a Google Maps link" width="45%">
+  &nbsp;
+  <img src="docs/images/telegram-en.png" alt="The same kind of walk message in English on Telegram, with a different route through five trees" width="45%">
+</p>
 
-1. Oak, 27 boulevard des Capucines, copper brown
-2. Maple, 16 rue de Hanovre, red or orange
-3. Persian ironwood, rue des Martyrs, red to orange
-4. Maple, Square Alex Biscarre, red or orange
-5. Ginkgo, 1 place de Dublin, golden yellow
-
-Total distance: 3.5 km, walking time: 55 minutes.
-https://www.google.com/maps/dir/?api=1&origin=48.8719,2.3316&...&travelmode=walking
-```
+**Design principle: the LLM writes, the code does the geography.**
 
 ## How it works
+
+```mermaid
+flowchart LR
+    Q["Question<br/>or daily 8:30 job"] --> A["Strands agent<br/>Gemma 4 E2B via Ollama"]
+    A --> W["get_weather<br/>Open-Meteo"]
+    A --> F["find_autumn_trees<br/>SQLite: Paris trees"]
+    A --> B["build_walk<br/>Python: stops, distances, Maps link"]
+    H[("Walk history<br/>SQLite")] -- "skip recent streets" --> B
+    W --> A
+    F --> A
+    B --> A
+    A --> M["Message<br/>checked before sending"]
+    M --> T["Telegram"]
+    M -- "record walk" --> H
+```
 
 A [Strands Agents](https://strandsagents.com) agent running **Gemma 4 E2B** on [Ollama](https://ollama.com) uses three tools:
 
