@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Sends the daily autumn walk at 8:30. If the Mac is asleep at 8:30, launchd runs it on wake
+  (not if the Mac was shut down). Fill in the placeholders with:
+    sed -e "s|__PROJECT__|$PWD|g" -e "s|__UV__|$(which uv)|g" -e "s|__HOME__|$HOME|g" \
+      launchd/local.autumn-walks.send-walk.plist.template \
+      > ~/Library/LaunchAgents/local.autumn-walks.send-walk.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>local.autumn-walks.send-walk</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__UV__</string>
+        <string>run</string>
+        <string>--project</string>
+        <string>__PROJECT__</string>
+        <string>send-walk</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__PROJECT__</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/autumn-walks.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/autumn-walks.log</string>
+</dict>
+</plist>

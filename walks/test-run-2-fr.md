@@ -2,13 +2,16 @@
 
 > Où me promener par un temps d'automne ?
 
-Le temps est prévu à 17,0 à 17,8 °C avec une probabilité de pluie de 60 % et un vent de 6,5 km/h. Un parapluie est conseillé, ou privilégiez l'heure la plus sèche à 15 h.
+Le temps est de 17,0 à 17,8 °C avec une probabilité de pluie de 60 % et un vent de 6,5 km/h. Un parapluie est conseillé, ou vous pouvez profiter de l'heure la plus sèche à 15 h.
 
-1. Chêne, 27 boulevard des Capucines, brun cuivré
-2. Érable, 16 rue de Hanovre, rouge ou orange
-3. Parrotie de Perse, rue des Martyrs, du rouge à l'orange
-4. Érable, Square Alex Biscarre, rouge ou orange
-5. Ginkgo, 1 place de Dublin, jaune doré
+Voici une promenade d'automne vous attendant :
 
-Distance totale : 3,5 km, durée de marche : 55 minutes.
-https://www.google.com/maps/dir/?api=1&origin=48.8719,2.3316&destination=48.8719,2.3316&waypoints=48.870274,2.330612|48.870221,2.333905|48.876841,2.339204|48.878306,2.336501|48.880515,2.325064&travelmode=walking
+1. Chêne, 73 rue de Provence, brun cuivré
+2. Parrotie de Perse, rue Milton, du rouge à l'orange
+3. Liquidambar, 3 rue de la Jussienne, du rouge au pourpre
+4. Liquidambar, Jardin Nelson Mandela, du rouge au pourpre
+5. Érable, 8 rue de la Banque, rouge ou orange
+
+Distance totale : 3,9 km, durée de marche : 65 minutes.
+
+https://www.google.com/maps/dir/?api=1&origin=48.8719,2.3316&destination=48.8719,2.3316&waypoints=48.874251,2.332146%7C48.877454,2.340758%7C48.865205,2.344069%7C48.863189,2.344198%7C48.866768,2.340679&travelmode=walking

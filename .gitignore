@@ -2,3 +2,5 @@ sessions/
 data/raw/
 __pycache__/
 .DS_Store
+.env
+data/history.sqlite

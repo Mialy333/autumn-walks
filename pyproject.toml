@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 autumn-walks = "autumn_walks:main"
+send-walk = "autumn_walks.telegram:main"
 
 [build-system]
 requires = ["uv_build>=0.12.0,<0.13.0"]

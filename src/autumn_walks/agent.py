@@ -48,6 +48,7 @@ class WalkResult:
     start: tuple[float, float] = DEFAULT_START
     tool_calls: list[dict] = field(default_factory=list)
     retry_reasons: list[str] = field(default_factory=list)
+    ready: bool = False  # passed every check, safe to send
 
     @property
     def retries(self) -> int:
@@ -109,8 +110,14 @@ def plan_walk(question: str) -> WalkResult:
     while (problem := _problem(message, _walks(agent), start)) and len(reasons) < MAX_RETRIES:
         reasons.append(problem)
         message = str(agent(RETRY_PROMPT.format(problem=problem))).strip()
+    ready = _problem(message, _walks(agent), start) is None
     walks = _walks(agent)
     walk = next((w for w in walks if w["google_maps_url"] in message), walks[-1] if walks else None)
     return WalkResult(
-        message=message, walk=walk, start=start, tool_calls=_tool_uses(agent), retry_reasons=reasons
+        message=message,
+        walk=walk,
+        start=start,
+        tool_calls=_tool_uses(agent),
+        retry_reasons=reasons,
+        ready=ready,
     )

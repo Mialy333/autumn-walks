@@ -14,9 +14,11 @@ from strands import tool
 from autumn_walks.config import (
     DETOUR_FACTOR,
     MAX_LOOP_M,
+    RECENT_WALKS_EXCLUDED,
     SEARCH_RADIUS_M,
     WALK_M_PER_MIN,
 )
+from autumn_walks.history import recent_tree_ids
 from autumn_walks.load_trees import DB_PATH
 
 EARTH_RADIUS_M = 6_371_000
@@ -72,6 +74,15 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(h))
 
 
+def _recent_streets(con: sqlite3.Connection) -> set[str]:
+    """Streets and parks visited in the last walks; the next walk goes elsewhere."""
+    ids = list(recent_tree_ids(RECENT_WALKS_EXCLUDED))
+    if not ids:
+        return set()
+    rows = con.execute(f"SELECT street FROM trees WHERE id IN ({','.join('?' * len(ids))})", ids)
+    return {street for (street,) in rows}
+
+
 def _tree_dict(r: sqlite3.Row) -> dict:
     tree, colours = GENUS_INFO[walk_lang()][r["genus"]]
     return {
@@ -89,7 +100,8 @@ def _tree_dict(r: sqlite3.Row) -> dict:
 def find_autumn_trees(lat: float, lon: float) -> list[dict]:
     """Find trees with strong autumn colour (ginkgo, sweetgum, Persian ironwood, maple, oak) around a point in Paris.
 
-    Returns candidate ids within 2 km, spread out: ginkgo and sweetgum first, one tree per street or park.
+    Returns candidate ids within 2 km, spread out: ginkgo and sweetgum first, one tree per street or park,
+    leaving out the streets and parks of the last walks.
     Pass all the ids to build_walk, which returns the stops' names, places and colours.
 
     Args:
@@ -106,12 +118,15 @@ def find_autumn_trees(lat: float, lon: float) -> list[dict]:
         "SELECT * FROM trees WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
         (lat - dlat, lat + dlat, lon - dlon, lon + dlon),
     ).fetchall()
+    recent = _recent_streets(con)
     con.close()
 
     # Bucket candidates by (genus, distance ring), nearest first within each bucket.
     ring_width = radius_m / N_RINGS
     pools: dict[tuple[str, int], list[tuple[float, sqlite3.Row]]] = {}
     for r in rows:
+        if r["street"] in recent:
+            continue
         dist = haversine_m(lat, lon, r["lat"], r["lon"])
         if dist <= radius_m:
             ring = min(int(dist // ring_width), N_RINGS - 1)
@@ -188,7 +203,8 @@ def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
                     best, best_key = seq, key
         return best
 
-    chosen = [found[i] for i in ids]
+    recent = _recent_streets(con)
+    chosen = [found[i] for i in ids if found[i]["street"] not in recent]
     best = best_loop(chosen)
     if best is None:
         # The candidates are too few or too far apart: keep the 5 closest and add the nearest trees.
@@ -207,7 +223,7 @@ def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
         for r in nearby:
             if len(chosen) >= MAX_CANDIDATES:
                 break
-            if r["street"] not in streets:
+            if r["street"] not in streets and r["street"] not in recent:
                 streets.add(r["street"])
                 chosen.append(r)
         best = best_loop(chosen)
@@ -217,7 +233,8 @@ def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
 
     stops = [{"stop": n, **_tree_dict(r)} for n, r in enumerate(best, 1)]
     total = round(loop_m(best))
-    waypoints = "|".join(f"{s['lat']},{s['lon']}" for s in stops)
+    # %7C instead of "|" so Telegram keeps the whole link clickable.
+    waypoints = "%7C".join(f"{s['lat']},{s['lon']}" for s in stops)
     origin = f"{start_lat},{start_lon}"
     return {
         "start": [start_lat, start_lon],

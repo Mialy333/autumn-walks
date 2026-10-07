@@ -2,15 +2,22 @@
 
 Usage: uv run python try_walk.py ["question"] [runs]
 The message language follows WALK_LANG (fr or en, default fr).
+Runs share a fresh, temporary walk history, so each walk avoids the trees of the previous ones.
 """
 
+import os
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
+os.environ["WALK_HISTORY_DB"] = str(Path(tempfile.mkdtemp()) / "history.sqlite")
+
 from autumn_walks.agent import MAX_WORDS, plan_walk
-from autumn_walks.config import MAX_LOOP_M
+from autumn_walks.config import MAX_LOOP_M, RECENT_WALKS_EXCLUDED
+from autumn_walks.history import record_walk
+from autumn_walks.places import street_key
 from autumn_walks.tools import haversine_m, walk_lang
 
 LANG = walk_lang()
@@ -39,7 +46,7 @@ def loop_from_link(answer: str, start: tuple[float, float]) -> float | None:
     return sum(haversine_m(*a, *b) for a, b in zip(path, path[1:])) if stops else None
 
 
-def run_once(i: int) -> dict:
+def run_once(i: int, previous: list[dict]) -> dict:
     start = time.perf_counter()
     result = plan_walk(PROMPT)
     latency = time.perf_counter() - start
@@ -57,7 +64,12 @@ def run_once(i: int) -> dict:
         "link copied": walk is not None and walk["google_maps_url"] in answer,
         "wind mentioned": bool(re.search(r"\b(wind|vent)", answer, re.I)),
         f"< {MAX_WORDS} words": len(answer.split()) < MAX_WORDS,
+        "new places": walk is not None
+        and not {street_key(s["place"]) for s in walk["stops"]}
+        & {street_key(s["place"]) for w in previous[-RECENT_WALKS_EXCLUDED:] for s in w["stops"]},
     }
+    if walk:
+        record_walk(walk)
 
     OUT_DIR.mkdir(exist_ok=True)
     (OUT_DIR / f"test-run-{i}-{LANG}.md").write_text(
@@ -70,7 +82,9 @@ def run_once(i: int) -> dict:
     for c in calls:
         print(f"  tool: {c['name']}({c['input']})")
     if walk:
-        print(f"  build_walk: {len(walk['stops'])} stops, {[s['genus'] for s in walk['stops']]}, loop {walk['total_loop_m']} m")
+        print(f"  build_walk: {len(walk['stops'])} stops, loop {walk['total_loop_m']} m")
+        for s in walk["stops"]:
+            print(f"    {s['id']:>8} {s['genus']:<12} {s['place']}")
     print(f"  loop recomputed from answer's link: {f'{link_loop:.0f} m' if link_loop else 'n/a'}")
     print(f"  words: {len(answer.split())}")
     print(f"  failed checks: {[k for k, ok in checks.items() if not ok] or 'none'}")
@@ -87,7 +101,9 @@ def run_once(i: int) -> dict:
 
 
 if __name__ == "__main__":
-    rows = [run_once(i) for i in range(1, RUNS + 1)]
+    rows = []
+    for i in range(1, RUNS + 1):
+        rows.append(run_once(i, [r["walk"] for r in rows if r["walk"]]))
 
     print("\n| Run | Tool calls | Retries | Stops (genera) | Loop | Words | Checks | Latency (s) |")
     print("|-----|------------|---------|----------------|------|-------|--------|-------------|")
