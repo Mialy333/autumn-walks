@@ -1,0 +1,16 @@
+[project]
+name = "autumn-walks"
+version = "0.1.0"
+description = "Plan short autumn walks past colourful Paris trees with a local LLM agent"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "strands-agents[ollama]>=1.58.1",
+]
+
+[project.scripts]
+autumn-walks = "autumn_walks:main"
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
