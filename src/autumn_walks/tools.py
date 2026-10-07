@@ -3,6 +3,7 @@
 import itertools
 import json
 import math
+import os
 import sqlite3
 import time
 import urllib.error
@@ -10,6 +11,12 @@ import urllib.parse
 import urllib.request
 from strands import tool
 
+from autumn_walks.config import (
+    DETOUR_FACTOR,
+    MAX_LOOP_M,
+    SEARCH_RADIUS_M,
+    WALK_M_PER_MIN,
+)
 from autumn_walks.load_trees import DB_PATH
 
 EARTH_RADIUS_M = 6_371_000
@@ -18,8 +25,40 @@ N_RINGS = 3  # distance rings across the radius, so stops are spread out
 MIN_STOPS = 3
 MAX_STOPS = 5
 MAX_CANDIDATES = 10
-MAX_LOOP_M = 3000  # about 40 minutes of walking
+UMBRELLA_RAIN_PCT = 50
 AFTERNOON_HOURS = range(14, 19)  # 14:00 to 18:00 local time
+
+# Plain tree name and October look per genus. The model copies these, never invents them.
+GENUS_INFO = {
+    "fr": {
+        "Ginkgo": ("Ginkgo", "jaune doré"),
+        "Liquidambar": ("Liquidambar", "du rouge au pourpre"),
+        "Parrotia": ("Parrotie de Perse", "du rouge à l'orange"),
+        "Acer": ("Érable", "rouge ou orange"),
+        "Quercus": ("Chêne", "brun cuivré"),
+    },
+    "en": {
+        "Ginkgo": ("Ginkgo", "golden yellow"),
+        "Liquidambar": ("Sweetgum", "red to purple"),
+        "Parrotia": ("Persian ironwood", "red to orange"),
+        "Acer": ("Maple", "red or orange"),
+        "Quercus": ("Oak", "copper brown"),
+    },
+}
+
+
+def walk_lang() -> str:
+    """Language of the walk message, from WALK_LANG (fr or en, default fr)."""
+    lang = os.environ.get("WALK_LANG", "fr").lower()
+    return lang if lang in GENUS_INFO else "fr"
+
+
+def _num(x: float, decimals: int = 1) -> str:
+    """Number with a decimal comma in French, a decimal point in English."""
+    text = f"{x:.{decimals}f}"
+    return text.replace(".", ",") if walk_lang() == "fr" else text
+
+
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 
@@ -34,31 +73,30 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _tree_dict(r: sqlite3.Row) -> dict:
+    tree, colours = GENUS_INFO[walk_lang()][r["genus"]]
     return {
         "id": r["id"],
-        "common_name": r["common_name"],
+        "tree": tree,
         "genus": r["genus"],
-        "species": r["species"],
-        "address": r["address"],
+        "october_colours": colours,
+        "place": r["place"],
         "lat": round(r["lat"], 6),
         "lon": round(r["lon"], 6),
-        "arrondissement": r["arrondissement"],
-        "remarkable": bool(r["remarkable"]),
     }
 
 
 @tool
-def find_autumn_trees(lat: float, lon: float, radius_m: int = 1500, limit: int = 10) -> list[dict]:
+def find_autumn_trees(lat: float, lon: float) -> list[dict]:
     """Find trees with strong autumn colour (ginkgo, sweetgum, Persian ironwood, maple, oak) around a point in Paris.
 
-    Returns a varied selection spread across the whole radius: rarer genera first, one tree per street or park.
+    Returns candidate ids within 2 km, spread out: ginkgo and sweetgum first, one tree per street or park.
+    Pass all the ids to build_walk, which returns the stops' names, places and colours.
 
     Args:
         lat: Latitude of the starting point.
         lon: Longitude of the starting point.
-        radius_m: Search radius in metres.
-        limit: Maximum number of trees to return.
     """
+    radius_m, limit = SEARCH_RADIUS_M, MAX_CANDIDATES
     # Bounding box prefilter, then exact haversine distance.
     dlat = math.degrees(radius_m / EARTH_RADIUS_M)
     dlon = dlat / math.cos(math.radians(lat))
@@ -99,25 +137,24 @@ def find_autumn_trees(lat: float, lon: float, radius_m: int = 1500, limit: int =
                 break
 
     picked.sort(key=lambda x: x[0])
-    return [{**_tree_dict(r), "distance_m": round(dist)} for dist, r in picked]
+    return [{"id": r["id"], "genus": r["genus"], "distance_m": round(dist)} for dist, r in picked]
 
 
 @tool
 def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
-    """Turn candidate trees into a walking loop of about 40 minutes that starts and ends at the starting point.
+    """Turn candidate trees into a walking loop of up to about 50 minutes that starts and ends at the starting point.
 
-    From the candidates, keeps the 3 to 5 stops with the most varied genera whose loop fits in 3 km,
-    orders them, and computes every distance and the Google Maps link.
-    Copy its numbers and link exactly; never compute distances yourself.
+    From the candidates, keeps the 3 to 5 stops with the most varied genera whose loop fits in 4 km,
+    orders them, and gives the total distance, walking time and Google Maps link.
+    Copy its trees, places, colours, numbers and link exactly; never compute or invent anything.
 
     Args:
         start_lat: Latitude of the starting point.
         start_lon: Longitude of the starting point.
-        tree_ids: Ids of 3 to 10 candidate trees from find_autumn_trees.
+        tree_ids: Ids of up to 10 candidate trees from find_autumn_trees. If they cannot make a walk,
+            the nearest trees are added automatically.
     """
-    ids = list(dict.fromkeys(int(i) for i in tree_ids))
-    if not MIN_STOPS <= len(ids) <= MAX_CANDIDATES:
-        return {"error": f"Pass between {MIN_STOPS} and {MAX_CANDIDATES} tree ids, got {len(ids)}."}
+    ids = list(dict.fromkeys(int(i) for i in tree_ids))[:MAX_CANDIDATES]
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     found = {
@@ -126,9 +163,9 @@ def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
             f"SELECT * FROM trees WHERE id IN ({','.join('?' * len(ids))})", ids
         )
     }
-    con.close()
     missing = [i for i in ids if i not in found]
     if missing:
+        con.close()
         return {"error": f"Unknown tree ids: {missing}. Use ids returned by find_autumn_trees."}
 
     start = (start_lat, start_lon)
@@ -137,43 +174,58 @@ def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
         path = [start, *((r["lat"], r["lon"]) for r in seq), start]
         return sum(haversine_m(*a, *b) for a, b in zip(path, path[1:]))
 
-    # Shortest ordering of every 3-5 stop subset; keep the best one that fits.
-    best, best_key = None, None
-    for k in range(MIN_STOPS, MAX_STOPS + 1):
-        for subset in itertools.combinations((found[i] for i in ids), k):
-            seq = min(itertools.permutations(subset), key=loop_m)
-            length = loop_m(seq)
-            if length > MAX_LOOP_M:
-                continue
-            key = (len({r["genus"] for r in seq}), k, -length)
-            if best_key is None or key > best_key:
-                best, best_key = seq, key
-    if best is None:
-        return {
-            "error": f"No 3-stop loop from these trees fits in {MAX_LOOP_M} m. "
-            "Pass more trees that are closer to the starting point."
-        }
+    def best_loop(candidates: list[sqlite3.Row]) -> tuple[sqlite3.Row, ...] | None:
+        """Shortest ordering of every 3-5 stop subset; the best one that fits."""
+        best, best_key = None, None
+        for k in range(MIN_STOPS, MAX_STOPS + 1):
+            for subset in itertools.combinations(candidates, k):
+                seq = min(itertools.permutations(subset), key=loop_m)
+                length = loop_m(seq)
+                if length > MAX_LOOP_M:
+                    continue
+                key = (len({r["genus"] for r in seq}), k, -length)
+                if best_key is None or key > best_key:
+                    best, best_key = seq, key
+        return best
 
-    stops, prev = [], start
-    for n, r in enumerate(best, 1):
-        here = (r["lat"], r["lon"])
-        stops.append(
-            {
-                "stop": n,
-                **_tree_dict(r),
-                "distance_from_start_m": round(haversine_m(*start, *here)),
-                "distance_from_previous_m": round(haversine_m(*prev, *here)),
-            }
+    chosen = [found[i] for i in ids]
+    best = best_loop(chosen)
+    if best is None:
+        # The candidates are too few or too far apart: keep the 5 closest and add the nearest trees.
+        chosen.sort(key=lambda r: haversine_m(*start, r["lat"], r["lon"]))
+        chosen = chosen[:MAX_STOPS]
+        streets = {r["street"] for r in chosen}
+        dlat = math.degrees(MAX_LOOP_M / 4 / EARTH_RADIUS_M)
+        dlon = dlat / math.cos(math.radians(start_lat))
+        nearby = sorted(
+            con.execute(
+                "SELECT * FROM trees WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
+                (start_lat - dlat, start_lat + dlat, start_lon - dlon, start_lon + dlon),
+            ),
+            key=lambda r: haversine_m(*start, r["lat"], r["lon"]),
         )
-        prev = here
+        for r in nearby:
+            if len(chosen) >= MAX_CANDIDATES:
+                break
+            if r["street"] not in streets:
+                streets.add(r["street"])
+                chosen.append(r)
+        best = best_loop(chosen)
+    con.close()
+    if best is None:
+        return {"error": f"No walk of 3 stops or more fits in {MAX_LOOP_M} m around this point."}
+
+    stops = [{"stop": n, **_tree_dict(r)} for n, r in enumerate(best, 1)]
+    total = round(loop_m(best))
     waypoints = "|".join(f"{s['lat']},{s['lon']}" for s in stops)
     origin = f"{start_lat},{start_lon}"
     return {
+        "start": [start_lat, start_lon],
         "stops": stops,
-        "return_to_start_m": round(haversine_m(*prev, *start)),
-        "total_loop_m": round(loop_m(best)),
-        "skipped_tree_ids": [i for i in ids if i not in {s["id"] for s in stops}],
-        "google_maps_url": (
+        "total_loop_m": total,
+        "total_distance": f"{_num(total / 1000)} km",
+        "walking_time_min": round(total * DETOUR_FACTOR / WALK_M_PER_MIN / 5) * 5,
+                "google_maps_url": (
             "https://www.google.com/maps/dir/?api=1"
             f"&origin={origin}&destination={origin}&waypoints={waypoints}&travelmode=walking"
         ),
@@ -183,6 +235,8 @@ def build_walk(start_lat: float, start_lon: float, tree_ids: list[int]) -> dict:
 @tool
 def get_weather(lat: float, lon: float) -> dict:
     """Get this afternoon's weather (14:00-18:00, Paris time) at a location: temperature, rain probability and wind.
+
+    Also says whether an umbrella is advised and which hour is the driest.
 
     Args:
         lat: Latitude.
@@ -214,10 +268,15 @@ def get_weather(lat: float, lon: float) -> dict:
     temps = [hourly["temperature_2m"][i] for i in idx]
     rain = [hourly["precipitation_probability"][i] for i in idx]
     wind = [hourly["wind_speed_10m"][i] for i in idx]
+    driest = min(range(len(idx)), key=lambda k: rain[k])  # earliest hour on ties
+    hour = int(hourly["time"][idx[driest]][11:13])
+    fr = walk_lang() == "fr"
+    # Ready-to-copy text, formatted for the message language.
     return {
         "period": "14:00-18:00",
-        "temperature_c_min": min(temps),
-        "temperature_c_max": max(temps),
-        "rain_probability_pct_max": max(rain),
-        "wind_kmh_max": max(wind),
+        "temperature": f"{_num(min(temps))} {'à' if fr else 'to'} {_num(max(temps))} °C",
+        "rain_probability": f"{max(rain)} %" if fr else f"{max(rain)}%",
+        "wind": f"{_num(max(wind))} km/h",
+        "umbrella_advised": max(rain) > UMBRELLA_RAIN_PCT,
+        "driest_hour": f"{hour} h" if fr else f"{hour - 12 if hour > 12 else hour} pm",
     }
